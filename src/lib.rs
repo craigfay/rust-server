@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: std::sync::mpsc::Sender<Job>,
+    sender: std::sync::mpsc::Sender<Message>,
 }
 
 impl ThreadPool {
@@ -40,8 +40,9 @@ impl ThreadPool {
         where
             F: FnOnce() + Send + 'static
     {
+
         let job = Box::new(f);
-        self.sender.send(job).unwrap();
+        self.sender.send(Message::NewJob(job)).unwrap();
 
     }
 }
@@ -57,18 +58,33 @@ impl Drop for ThreadPool {
     }
 }
 
+enum Message {
+    NewJob(Job),
+    Terminate,
+}
+
 struct Worker {
     id: usize,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let thread = std::thread::spawn(move || {
             loop {
-                let job = receiver.lock().unwrap().recv().unwrap();
-                println!("Worker {} got a job", id);
-                job.call_box();
+                let message = receiver.lock().unwrap().recv().unwrap();
+
+                match message {
+                    Message::NewJob(job) => {
+                        println!("Worker {} got a job", id);
+                        job.call_box();
+                    },
+                    Message::Terminate => {
+                        println!("Worker {} was told to terminate", id);
+                        break;
+                    }
+                }
+                
             }
         });
 
